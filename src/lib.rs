@@ -34,8 +34,6 @@ impl std::fmt::Display for ProxyKind {
 
 impl std::fmt::Display for Proxy {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
-        self.kind.fmt(f)?;
-
         match &self.creds {
             Some((login, password)) => f.write_fmt(format_args!(
                 "{}://{}:{}@{}:{}",
