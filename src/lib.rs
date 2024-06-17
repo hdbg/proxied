@@ -35,12 +35,14 @@ impl std::fmt::Display for ProxyKind {
 impl std::fmt::Display for Proxy {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         self.kind.fmt(f)?;
-        f.write_fmt(format_args!(":{}:{}", self.addr, self.port))?;
 
-        if let Some(ref creds) = self.creds {
-            f.write_fmt(format_args!(":{}:{}", creds.0, creds.1))?;
-        }
-
+        match &self.creds {
+            Some((login, password)) => f.write_fmt(format_args!(
+                "{}://{}:{}@{}:{}",
+                self.kind, login, password, self.addr, self.port,
+            ))?,
+            None => f.write_fmt(format_args!("{}://{}:{}", self.kind, self.addr, self.port))?,
+        };
         Ok(())
     }
 }
