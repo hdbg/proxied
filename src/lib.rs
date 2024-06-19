@@ -102,7 +102,7 @@ impl FromStr for Proxy {
             None
         };
 
-        let mut input_stack = input.split(&[':', ';', '@']).collect::<Vec<_>>();
+        let mut input_stack = input.split(&[':', '@']).collect::<Vec<_>>();
 
         if !([3, 4, 5, 6].contains(&input_stack.len())) {
             return Err(ParseError::InvalidChunkCount);
@@ -114,7 +114,8 @@ impl FromStr for Proxy {
             if !input.contains('@') {
                 None
             } else {
-                let login = input_stack.remove(0);
+                // ad-hoc socks:// <- // part removing fix
+                let login = input_stack.remove(0).replace("//", "");
                 let password = input_stack.remove(0);
 
                 Some((login.to_owned(), password.to_owned()))
