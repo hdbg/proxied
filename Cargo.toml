@@ -8,5 +8,9 @@ license = "MIT"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+async-http-proxy = { version = "1.2.5", features = ["basic-auth", "runtime-tokio", "tokio"] }
+fast-socks5 = "0.9.6"
 serde = { version = "1.0.202", features = ["derive"] }
 thiserror = "1.0.60"
+tokio = { version = "1.38.0", features = ["io-util", "net"] }
+uri = "0.4.0"
