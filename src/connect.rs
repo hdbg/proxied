@@ -349,3 +349,6 @@ pub async fn connect(
 
     Ok(ProxyConnection(conn))
 }
+
+#[cfg(test)]
+mod tests {}
