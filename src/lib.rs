@@ -45,7 +45,7 @@ impl Proxy {
         &self,
         target: NetworkTarget,
     ) -> Result<connect::ProxyConnection, ConnectError> {
-        connect::connect(&self, target).await
+        connect::connect(self, target).await
     }
 }
 pub mod parse;

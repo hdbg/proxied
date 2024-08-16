@@ -74,7 +74,7 @@ impl FromStr for Proxy {
             return Err(ParseError::InvalidChunkCount);
         }
 
-        let kind = ProxyKind::from_str(&input_stack.remove(0))?;
+        let kind = ProxyKind::from_str(input_stack.remove(0))?;
 
         let creds = {
             if !input.contains('@') {

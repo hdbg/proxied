@@ -183,7 +183,7 @@ mod http_proto {
                         host.as_str(),
                         target.port(),
                         login.as_str(),
-                        &password.as_str(),
+                        password.as_str(),
                     )
                     .await
                 }
@@ -265,7 +265,7 @@ static RESOLVED_DNS: LazyLock<Mutex<HashMap<String, AddrRecord>>> =
 
 async fn name_present_dns(record: &mut AddrRecord) -> Result<SocketAddr, ConnectError> {
     if record.items.is_empty() {
-        return Err(ConnectError::DnsNameNotResolved);
+        Err(ConnectError::DnsNameNotResolved)
     } else {
         let current = record
             .items
@@ -277,7 +277,7 @@ async fn name_present_dns(record: &mut AddrRecord) -> Result<SocketAddr, Connect
             record.next_item += 1;
         }
 
-        return Ok(current.clone());
+        Ok(*current)
     }
 }
 async fn resolve_dns(domain: &String) -> Result<SocketAddr, ConnectError> {
