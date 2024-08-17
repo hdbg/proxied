@@ -41,6 +41,13 @@ pub enum ConnectError {
 }
 
 #[derive(Debug)]
+/// Target for proxy for connection, in form of DNS name or socket's IP Address
+///
+/// Each Domain target is cached, and if you make multiple connections
+/// to a single domain, where multiple A records exists
+/// will perform a round-robin to distribute load
+///
+/// > **Note**: There is a limit on cached entries, so your memory won't run out
 pub enum NetworkTarget {
     Domain { domain: String, port: u16 },
     IPAddr { socket: SocketAddr },
@@ -212,8 +219,13 @@ mod http_proto {
     }
 }
 
-pub struct ProxyConnection(Box<dyn BiConnection>);
-impl AsyncRead for ProxyConnection {
+/// TCP Tunnel through proxy server
+///
+/// Create using [`Proxy::connect`]
+/// Internally uses protocol of proxy server to connect
+
+pub struct TCPConnection(Box<dyn BiConnection>);
+impl AsyncRead for TCPConnection {
     fn poll_read(
         mut self: std::pin::Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
@@ -224,7 +236,7 @@ impl AsyncRead for ProxyConnection {
     }
 }
 
-impl AsyncWrite for ProxyConnection {
+impl AsyncWrite for TCPConnection {
     fn poll_write(
         mut self: std::pin::Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
@@ -327,10 +339,7 @@ async fn resolve_dns(domain: &String) -> Result<SocketAddr, ConnectError> {
     }
 }
 
-pub async fn connect(
-    proxy: &Proxy,
-    target: NetworkTarget,
-) -> Result<ProxyConnection, ConnectError> {
+pub async fn connect(proxy: &Proxy, target: NetworkTarget) -> Result<TCPConnection, ConnectError> {
     let resolved_addr = match proxy.is_dns_addr() {
         true => resolve_dns(&proxy.addr).await?,
         false => SocketAddr::from_str(&format!("{}:{}", &proxy.addr, proxy.port))
@@ -347,7 +356,7 @@ pub async fn connect(
         }
     };
 
-    Ok(ProxyConnection(conn))
+    Ok(TCPConnection(conn))
 }
 
 #[cfg(test)]

@@ -130,7 +130,7 @@ async fn test_socks5_password() -> anyhow::Result<()> {
     };
 
     let mut connection = proxy
-        .connect(proxied::NetworkTarget::Domain {
+        .connect_tcp(proxied::NetworkTarget::Domain {
             domain: "tcpbin.com".to_string(),
             port: 4242,
         })
