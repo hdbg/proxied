@@ -1,69 +1,125 @@
-use std::{convert::Infallible, ops::Deref, sync::LazyLock};
-
-use anyhow::bail;
-use gerevs::{
-    auth::username_password_authenticator::{
-        User, UserAuthenticator, UsernamePasswordAuthenticator,
-    },
-    method_handlers, Socks5Socket,
+use anyhow::{anyhow, bail};
+use fast_socks5::{
+    server::{Config, SimpleUserPassword, Socks5Server, Socks5Socket},
+    Result, SocksError,
 };
+use futures::{Future, StreamExt};
 use proxied::Proxy;
+use std::{convert::Infallible, ops::Deref, sync::LazyLock};
 use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
+    io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
     task::JoinSet,
 };
 
 const SOCKS_SERVER_LISTENER_PORT: u16 = 1034;
+#[derive(Debug)]
+struct Opt {
+    /// Bind on address address. eg. `127.0.0.1:1080`
+    pub listen_addr: String,
+
+    /// Request timeout
+    pub request_timeout: u64,
+
+    /// Choose authentication type
+    pub auth: AuthMode,
+
+    /// Don't perform the auth handshake, send directly the command request
+    pub skip_auth: bool,
+}
+
+/// Choose the authentication type
+#[derive(Debug)]
+enum AuthMode {
+    NoAuth,
+    Password { username: String, password: String },
+}
+
+pub struct User {
+    username: String,
+    password: String,
+}
 
 static PROXY_USER: LazyLock<User> = LazyLock::new(|| User {
     username: "proxied".to_string(),
     password: "proxied1234".to_string(),
 });
+fn spawn_and_log_error<F, T>(fut: F) -> tokio::task::JoinHandle<()>
+where
+    F: Future<Output = Result<Socks5Socket<T, SimpleUserPassword>>> + Send + 'static,
+    T: AsyncRead + AsyncWrite + Unpin,
+{
+    tokio::task::spawn(async move {
+        match fut.await {
+            Ok(mut socket) => {
+                if let Some(user) = socket.take_credentials() {
+                    tracing::info!("user logged in with `{}`", user.username);
+                }
+            }
+            Err(err) => tracing::error!("{:#}", &err),
+        }
+    })
+}
+async fn run_socks5_server(opt: Opt) -> anyhow::Result<Infallible> {
+    let mut config = Config::default();
+    config.set_request_timeout(opt.request_timeout);
+    config.set_skip_auth(opt.skip_auth);
 
-pub struct SimpleUserAuthenticator {}
-impl UserAuthenticator for SimpleUserAuthenticator {
-    type Credentials = ();
+    let config = match opt.auth {
+        AuthMode::NoAuth => {
+            tracing::warn!("No authentication has been set!");
+            config
+        }
+        AuthMode::Password { username, password } => {
+            if opt.skip_auth {
+                return Err(SocksError::ArgumentInputError(
+                    "Can't use skip-auth flag and authentication altogether.",
+                )
+                .into());
+            }
 
-    fn authenticate_user(
-        &mut self,
-        user: User,
-    ) -> impl std::future::Future<Output = std::io::Result<Option<Self::Credentials>>> + Send {
-        async move {
-            if user.password == PROXY_USER.password && user.username == PROXY_USER.username {
-                Ok(Some(()))
-            } else {
-                Ok(None)
+            tracing::info!("Simple auth system has been set.");
+            config.with_authentication(SimpleUserPassword { username, password })
+        }
+    };
+
+    let listener = <Socks5Server>::bind(&opt.listen_addr).await?;
+    let listener = listener.with_config(config);
+
+    let mut incoming = listener.incoming();
+
+    tracing::info!("Listen for socks connections @ {}", &opt.listen_addr);
+
+    // Standard TCP loop
+    while let Some(socket_res) = incoming.next().await {
+        match socket_res {
+            Ok(socket) => {
+                spawn_and_log_error(socket.upgrade_to_socks5());
+            }
+            Err(err) => {
+                tracing::error!("accept error = {:?}", err);
+                return Err(err.into());
             }
         }
     }
-}
-fn proxy_user_authorizer() -> UsernamePasswordAuthenticator<SimpleUserAuthenticator> {
-    UsernamePasswordAuthenticator::new(SimpleUserAuthenticator {})
-}
-async fn run_socks5_server_authorized() -> anyhow::Result<Infallible> {
-    let mut listener =
-        tokio::net::TcpListener::bind(format!("127.0.0.1:{}", SOCKS_SERVER_LISTENER_PORT)).await?;
 
-    let mut join_set = JoinSet::new();
-    loop {
-        let (new_connection, _) = listener.accept().await?;
-        tracing::info!(event = "server.received_conn");
-        let socket = Socks5Socket::new(
-            new_connection,
-            proxy_user_authorizer(),
-            method_handlers::TunnelConnect,
-            method_handlers::BindDenier,
-            method_handlers::AssociateDenier,
-        );
-        join_set.spawn(async move { socket.run().await });
-        tracing::info!(event = "server.initialized_socks");
-    }
+    Err(anyhow!("failed"))
 }
 
 #[tokio::test]
-async fn main() -> anyhow::Result<()> {
+async fn test_socks5_password() -> anyhow::Result<()> {
     tracing_subscriber::fmt::init();
-    let _server = tokio::task::spawn(run_socks5_server_authorized());
+
+    let opt = Opt {
+        listen_addr: format!("127.0.0.1:{}", SOCKS_SERVER_LISTENER_PORT),
+        request_timeout: 1_000,
+        auth: AuthMode::Password {
+            username: PROXY_USER.username.clone(),
+            password: PROXY_USER.password.clone(),
+        },
+        skip_auth: false,
+    };
+
+    let _server = tokio::task::spawn(run_socks5_server(opt));
 
     let proxy = Proxy {
         kind: proxied::ProxyKind::Socks5,
@@ -84,14 +140,20 @@ async fn main() -> anyhow::Result<()> {
 
     // send one byte to echo_bin
 
-    if connection.write(&[1]).await? == 0 {
+    let VERIFICATION_SLICE: &[u8] = &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+
+    if connection.write(VERIFICATION_SLICE).await? == 0 {
         tracing::error!(event = "client.unexpected_close");
         bail!("connection closed");
     }
 
-    let mut recv_buffer: Vec<u8> = Vec::with_capacity(1);
+    let mut recv_buffer: Vec<u8> = vec![0; VERIFICATION_SLICE.len()];
 
-    if connection.read(recv_buffer.as_mut_slice()).await? == 0 {
+    if connection.read(recv_buffer.as_mut_slice()).await? == 0 {}
+
+    if recv_buffer.as_slice() == VERIFICATION_SLICE {
+        tracing::info!(event = "client.slice.ok");
+    } else {
         tracing::error!(event = "client.unexpected_close", action = "read");
         bail!("connection closed");
     }
