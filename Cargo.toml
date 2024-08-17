@@ -1,9 +1,13 @@
 [package]
 name = "proxied"
-version = "0.2.2"
+version = "0.3.0"
 edition = "2021"
-description = "Unified proxy connection data structure"
+description = "Asynchronous client connector for proxies"
 license = "MIT"
+repository = "https://github.com/hdbg/proxied"
+categories = ["asynchronous", "network-programming"]
+keywords = ["proxy", "async", "http", "socks", "client"]
+authors = ["hdbg"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
