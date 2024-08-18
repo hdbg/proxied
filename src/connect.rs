@@ -287,13 +287,13 @@ async fn name_present_dns(record: &mut AddrRecord) -> Result<SocketAddr, Connect
         record.next_item += 1;
 
         if record.next_item == record.items.len() {
-            record.next_item += 1;
+            record.next_item = 0;
         }
 
         Ok(*current)
     }
 }
-async fn resolve_dns(domain: &String) -> Result<SocketAddr, ConnectError> {
+async fn resolve_dns(domain: &String, port: u16) -> Result<SocketAddr, ConnectError> {
     let mut records_lock = RESOLVED_DNS.lock().await;
 
     // safety precaution not to fill all the heap with cache (very unlikely, but should be handle)
@@ -314,7 +314,7 @@ async fn resolve_dns(domain: &String) -> Result<SocketAddr, ConnectError> {
         // free lock while resolving process takes places in order to give change other threads to lock  while we resolve and to avoid deadlock by reccurent locking
         drop(records_lock);
 
-        let domain_name = format!("{}:1", &domain);
+        let domain_name = format!("{}:{}", &domain, port);
         let resolve_request = tokio::net::lookup_host(domain_name).await?.collect();
 
         // kickstart lock
@@ -342,7 +342,7 @@ async fn resolve_dns(domain: &String) -> Result<SocketAddr, ConnectError> {
 
 pub async fn connect(proxy: &Proxy, target: NetworkTarget) -> Result<TCPConnection, ConnectError> {
     let resolved_addr = match proxy.is_dns_addr() {
-        true => resolve_dns(&proxy.addr).await?,
+        true => resolve_dns(&proxy.addr, proxy.port).await?,
         false => SocketAddr::from_str(&format!("{}:{}", &proxy.addr, proxy.port))
             .map_err(|_| ConnectError::FailedAddrParsing)?,
     };
