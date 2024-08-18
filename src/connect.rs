@@ -79,9 +79,9 @@ impl std::fmt::Display for NetworkTarget {
         }
     }
 }
-trait BiConnection: AsyncRead + AsyncWrite + Unpin {}
+trait BiConnection: AsyncRead + AsyncWrite + Unpin + std::fmt::Debug {}
 
-impl<T: AsyncRead + AsyncWrite + Unpin> BiConnection for T {}
+impl<T: AsyncRead + AsyncWrite + Unpin + std::fmt::Debug> BiConnection for T {}
 trait ProxyProto {
     async fn new(
         proxy: &Proxy,
@@ -224,6 +224,7 @@ mod http_proto {
 /// Create using [`Proxy::connect`]
 /// Internally uses protocol of proxy server to connect
 
+#[derive(Debug)]
 pub struct TCPConnection(Box<dyn BiConnection>);
 impl AsyncRead for TCPConnection {
     fn poll_read(
