@@ -347,7 +347,9 @@ pub async fn connect(proxy: &Proxy, target: NetworkTarget) -> Result<TCPConnecti
             .map_err(|_| ConnectError::FailedAddrParsing)?,
     };
 
-    let stream = TcpStream::connect(resolved_addr).await?;
+    let stream: TcpStream = TcpStream::connect(resolved_addr).await?;
+    stream.set_nodelay(true)?;
+    stream.set_linger(None)?;
     let conn = match &proxy.kind {
         ProxyKind::Socks5 | ProxyKind::Socks4 => {
             socks_proto::SocksProtocol::new(proxy, target, stream).await?
