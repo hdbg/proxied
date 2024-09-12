@@ -24,7 +24,7 @@ Backend protocol of proxy server. Doesn't affect developer experience, except:
 - SOCKS4/5 proxies are fully and always supported
 - HTTP(s) proxy servers are expected to implement `CONNECT` method (see [RFC7232](https://datatracker.ietf.org/doc/html/rfc7231#section-4.3.6))
 */
-#[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
+#[derive(serde::Deserialize, serde::Serialize, Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ProxyKind {
     Socks5,
     Socks4,
@@ -53,7 +53,7 @@ let proxy = proxied::Proxy::from_str(socks).unwrap();
 assert_eq!(&proxy.addr, "127.0.0.1");
 ```
 */
-#[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
+#[derive(serde::Deserialize, serde::Serialize, Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Proxy {
     pub kind: ProxyKind,
     pub addr: String,
