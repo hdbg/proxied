@@ -79,9 +79,9 @@ impl std::fmt::Display for NetworkTarget {
         }
     }
 }
-trait BiConnection: AsyncRead + AsyncWrite + Unpin + std::fmt::Debug + Send {}
+trait BiConnection: AsyncRead + AsyncWrite + Unpin + std::fmt::Debug + Send + Sync {}
 
-impl<T: AsyncRead + AsyncWrite + Unpin + std::fmt::Debug + Send> BiConnection for T {}
+impl<T: AsyncRead + AsyncWrite + Unpin + std::fmt::Debug + Send + Sync> BiConnection for T {}
 trait ProxyProto {
     async fn new(
         proxy: &Proxy,
