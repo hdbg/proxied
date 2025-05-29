@@ -72,11 +72,8 @@ impl Proxy {
         !self.is_dns_addr()
     }
 
-    /// Create TCP tunnel through this proxy
-    pub async fn connect_tcp(
-        &self,
-        target: NetworkTarget,
-    ) -> Result<connect::TCPConnection, ConnectError> {
+    /// Create TCP tunnel through this proxy to the target
+    pub async fn connect_tcp(&self, target: NetworkTarget) -> Result<TcpStream, ConnectError> {
         connect::connect(self, target).await
     }
 }
@@ -84,4 +81,5 @@ pub mod parse;
 
 mod connect;
 
-pub use connect::{ConnectError, NetworkTarget, TCPConnection};
+pub use connect::{ConnectError, NetworkTarget};
+use tokio::net::TcpStream;

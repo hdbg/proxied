@@ -1,11 +1,7 @@
 use std::{collections::HashMap, net::SocketAddr, str::FromStr, sync::LazyLock};
 
 use async_http_proxy::HttpError;
-use tokio::{
-    io::{AsyncRead, AsyncWrite},
-    net::TcpStream,
-    sync::Mutex,
-};
+use tokio::{net::TcpStream, sync::Mutex};
 
 use crate::{Proxy, ProxyKind};
 
@@ -79,15 +75,12 @@ impl std::fmt::Display for NetworkTarget {
         }
     }
 }
-trait BiConnection: AsyncRead + AsyncWrite + Unpin + std::fmt::Debug + Send + Sync {}
-
-impl<T: AsyncRead + AsyncWrite + Unpin + std::fmt::Debug + Send + Sync> BiConnection for T {}
 trait ProxyProto {
     async fn new(
         proxy: &Proxy,
         target: NetworkTarget,
-        proxy_stream: tokio::net::TcpStream,
-    ) -> Result<Box<dyn BiConnection>, ConnectError>;
+        proxy_stream: &mut tokio::net::TcpStream,
+    ) -> Result<(), ConnectError>;
 }
 
 mod socks_proto {
@@ -96,7 +89,7 @@ mod socks_proto {
 
     use crate::Proxy;
 
-    use super::{BiConnection, ConnectError, NetworkTarget, ProxyProto};
+    use super::{ConnectError, NetworkTarget, ProxyProto};
 
     impl From<NetworkTarget> for TargetAddr {
         fn from(val: NetworkTarget) -> Self {
@@ -112,8 +105,8 @@ mod socks_proto {
         async fn new(
             proxy: &Proxy,
             target: NetworkTarget,
-            proxy_stream: TcpStream,
-        ) -> Result<Box<dyn BiConnection>, ConnectError> {
+            proxy_stream: &mut TcpStream,
+        ) -> Result<(), ConnectError> {
             let mut auth = None;
             if let Some((username, password)) = &proxy.creds {
                 auth = Some(AuthenticationMethod::Password {
@@ -157,7 +150,7 @@ mod socks_proto {
                 .await;
 
             match command_result {
-                Ok(_) => Ok(Box::new(stream)),
+                Ok(_) => Ok(()),
                 Err(fast_socks5::SocksError::ExceededMaxDomainLen(_)) => {
                     Err(ConnectError::ExceededMaxDomainLen)
                 }
@@ -173,15 +166,15 @@ mod http_proto {
 
     use crate::Proxy;
 
-    use super::{BiConnection, ConnectError, NetworkTarget, ProxyProto};
+    use super::{ConnectError, NetworkTarget, ProxyProto};
 
     pub struct HttpProtocol;
     impl ProxyProto for HttpProtocol {
         async fn new(
             proxy: &Proxy,
             target: NetworkTarget,
-            mut proxy_stream: TcpStream,
-        ) -> Result<Box<dyn BiConnection>, ConnectError> {
+            mut proxy_stream: &mut TcpStream,
+        ) -> Result<(), ConnectError> {
             let host = target.host();
             let resp = match &proxy.creds {
                 Some((login, password)) => {
@@ -214,53 +207,8 @@ mod http_proto {
                 Err(err) => return Err(err.into()),
             }
 
-            Ok(Box::new(proxy_stream))
+            Ok(())
         }
-    }
-}
-
-/// TCP Tunnel through proxy server
-///
-/// Create using [`Proxy::connect`]
-/// Internally uses protocol of proxy server to connect
-
-#[derive(Debug)]
-pub struct TCPConnection(Box<dyn BiConnection>);
-impl AsyncRead for TCPConnection {
-    fn poll_read(
-        mut self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-        buf: &mut tokio::io::ReadBuf<'_>,
-    ) -> std::task::Poll<std::io::Result<()>> {
-        let pinned = std::pin::pin!(&mut self.0);
-        pinned.poll_read(cx, buf)
-    }
-}
-
-impl AsyncWrite for TCPConnection {
-    fn poll_write(
-        mut self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-        buf: &[u8],
-    ) -> std::task::Poll<Result<usize, std::io::Error>> {
-        let pinned = std::pin::pin!(&mut self.0);
-        pinned.poll_write(cx, buf)
-    }
-
-    fn poll_flush(
-        mut self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Result<(), std::io::Error>> {
-        let pinned = std::pin::pin!(&mut self.0);
-        pinned.poll_flush(cx)
-    }
-
-    fn poll_shutdown(
-        mut self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Result<(), std::io::Error>> {
-        let pinned = std::pin::pin!(&mut self.0);
-        pinned.poll_flush(cx)
     }
 }
 
@@ -340,27 +288,24 @@ async fn resolve_dns(domain: &String, port: u16) -> Result<SocketAddr, ConnectEr
     }
 }
 
-pub async fn connect(proxy: &Proxy, target: NetworkTarget) -> Result<TCPConnection, ConnectError> {
+pub async fn connect(proxy: &Proxy, target: NetworkTarget) -> Result<TcpStream, ConnectError> {
     let resolved_addr = match proxy.is_dns_addr() {
         true => resolve_dns(&proxy.addr, proxy.port).await?,
         false => SocketAddr::from_str(&format!("{}:{}", &proxy.addr, proxy.port))
             .map_err(|_| ConnectError::FailedAddrParsing)?,
     };
 
-    let stream: TcpStream = TcpStream::connect(resolved_addr).await?;
+    let mut stream: TcpStream = TcpStream::connect(resolved_addr).await?;
     stream.set_nodelay(true)?;
     stream.set_linger(None)?;
-    let conn = match &proxy.kind {
+    match &proxy.kind {
         ProxyKind::Socks5 | ProxyKind::Socks4 => {
-            socks_proto::SocksProtocol::new(proxy, target, stream).await?
+            socks_proto::SocksProtocol::new(proxy, target, &mut stream).await?
         }
         ProxyKind::Http | ProxyKind::Https => {
-            http_proto::HttpProtocol::new(proxy, target, stream).await?
+            http_proto::HttpProtocol::new(proxy, target, &mut stream).await?
         }
-    };
+    }
 
-    Ok(TCPConnection(conn))
+    Ok(stream)
 }
-
-#[cfg(test)]
-mod tests {}
