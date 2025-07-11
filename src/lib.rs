@@ -77,6 +77,47 @@ impl Proxy {
         connect::connect(self, target).await
     }
 }
+
+#[cfg(feature = "reqwest")]
+mod reqwest_helpers {
+    use super::Proxy;
+    pub trait ProxifyClient {
+        fn proxify(self, client: reqwest::ClientBuilder) -> reqwest::ClientBuilder;
+    }
+    #[cfg(feature = "reqwest")]
+    impl Into<reqwest::Proxy> for Proxy {
+        fn into(self) -> reqwest::Proxy {
+            let url = format!("{}://{}:{}", self.kind.to_string(), &self.addr, self.port);
+
+            let mut proxy =
+                reqwest::Proxy::all(url).expect("Structure provides fixed format, never crashed");
+
+            if let Some((username, password)) = self.creds {
+                proxy = proxy.basic_auth(&username, &password);
+            }
+
+            proxy
+        }
+    }
+
+    impl ProxifyClient for Proxy {
+        fn proxify(self, client: reqwest::ClientBuilder) -> reqwest::ClientBuilder {
+            client.proxy(self.into())
+        }
+    }
+
+    impl ProxifyClient for Option<Proxy> {
+        fn proxify(self, client: reqwest::ClientBuilder) -> reqwest::ClientBuilder {
+            match self {
+                Some(proxy) => proxy.proxify(client),
+                None => client,
+            }
+        }
+    }
+}
+#[cfg(feature = "reqwest")]
+pub use reqwest_helpers::*;
+
 pub mod parse;
 
 mod connect;

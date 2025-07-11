@@ -1,6 +1,6 @@
 [package]
 name = "proxied"
-version = "1.0.0"
+version = "1.1.0"
 edition = "2021"
 description = "Asynchronous client connector for proxies"
 license = "MIT"
@@ -15,6 +15,7 @@ documentation = "https://docs.rs/proxied"
 [dependencies]
 async-http-proxy = { version = "1.2.5", features = ["basic-auth", "runtime-tokio", "tokio"] }
 fast-socks5 = "0.9.6"
+reqwest = { version = "0", optional = true }
 serde = { version = "1.0.219", features = ["derive"] }
 thiserror = "1.0.69"
 tokio = { version = "1.45.1", features = ["io-util", "net"] }
@@ -26,3 +27,6 @@ futures = "0.3.31"
 tokio = { version = "1.45.1", features = ["full"] }
 tracing = "0.1.41"
 tracing-subscriber = "0.3.19"
+
+[features]
+reqwest = ["dep:reqwest"]
